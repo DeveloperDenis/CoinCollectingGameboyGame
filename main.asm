@@ -93,7 +93,7 @@ JOYPAD_VECT:
 
 	; $0148 (ROM size)
 	DB	$00	; $00 - 256Kbit = 32Kbyte = 2 banks
-
+	
 	; $0149 (RAM size)
 	DB	$00	; $00 - None
 
@@ -150,30 +150,15 @@ wait_vblank::
 	;; we will load our tiles into the Tile Pattern Table at $8000-$8FFF
 	ld	hl, $8000	; the location to write tile data to
 	ld	bc, TileData	; the data to write
-	ld	d, $30		; the number of bytes we will write
-
-load_tile_loop::
-	ld	a, [bc]
-	ldi	[hl], a
-	inc	bc
-
-	dec	d
-	jp	nz, load_tile_loop
+	ld	d, $50		; the number of bytes we will write
+	ld	e, $0
+	call	MemCopy
 
 	;; now we load the tile map into vram
 	ld	hl, $9800	; location to write tile map to
 	ld 	bc, MapData
 	ld	de, 32 * 32	; size of the tile map we are writing (max size)
-
-load_map_loop::
-	ld	a, [bc]
-	ldi	[hl], a
-	inc	bc
-
-	dec	e		; E contains the lower 8 bits of the counter
-	jp	nz, load_map_loop
-	dec	d		; D contains the upper 8 bits of the counter
-	jp	nz, load_map_loop
+	call	MemCopy
 
 	;; initialize the palettes
 	ld	a, %11100100	;the default (i think)
@@ -186,6 +171,12 @@ load_map_loop::
 	ld	bc, SpriteData
 	ld	hl, $C000
 	ld	d, $8
+	ld	e, $0
+	call	MemCopy
+
+	; now we are initializing the rest of the unused sprite data
+	ld	a, $FF
+	ld	d, 38*4
 load_sprite_loop::
 	ld	a, [bc]
 	ldi	[hl], a
@@ -193,27 +184,24 @@ load_sprite_loop::
 	dec	d
 	jr	nz, load_sprite_loop
 
-	; now we are initializing the rest of the unused sprite data
-	ld	a, $FF
-	ld	d, 38*4
-load_sprite_loop2::
-	ld	a, [bc]
-	ldi	[hl], a
-	inc	bc
-	dec	d
-	jr	nz, load_sprite_loop2
-
 	; now we want to load our DMA waiting function into HRAM ($FF80)
 	ld	bc, DMA_Function
 	ld	d, $8		;8 bytes of data
+	ld	e, $0
 	ld	hl, $FF80
+	call	MemCopy
+
+	; initialize the window
+	sub	a
+	ldh	[$4A], a
+	ld	a, $7
+	ldh	[$4B], a	; WX should not be set as a value from 0-6
 	
-.loop
-	ld	a, [bc]
-	ldi	[hl], a
-	inc	bc
-	dec	d
-	jr	nz, .loop
+	ld	e, $0
+	ld	d, $14		;20 bytes
+	ld	hl, $9C00
+	ld	bc, WindowData
+	call	MemCopy
 
 	; initialize the flag that changes player movement
 	ld	hl, $D000
@@ -231,7 +219,7 @@ load_sprite_loop2::
 	ld	[$FF07], a
 
 	; reenable lcd
-	ld	a, %10010011
+	ld	a, %11110011		; window display data is at $9C00, background display data is at $9800
 	ldh	[$40], a
 
 	;; interrupts can now start happening
@@ -430,7 +418,7 @@ collisionUpdate::
 	; calculate the next random number
 	ld	a, [$FF05]
 	and	%01111111
-	add	$10
+	add	$15
 	ld	[$C004], a
 	
 	ld	a, [$FF04]
@@ -443,24 +431,43 @@ noCollision::
 	halt
 	jp	GameLoop
 
+; before runing MemCopy:
+; HL should hold the location to write to
+; BC should hold the location to write from
+; DE should hold the number of bytes to write
+MemCopy::
+	push	af
+	
+.copyLoop
+	ld	a, [bc]
+	ldi	[hl], a
+	inc	bc
+
+	ld	a, e
+	or	e
+	jp	z, .skipE
+	dec	e
+	jp	nz, .copyLoop
+
+.skipE
+	dec	d
+	jp	nz, .copyLoop
+	
+	pop	af
+	ret
+
 VBlankFunction::
 	di		; disable interrupts (don't think this is necessary?)
 	push	af	; we push the flag register so that the interrupted code will still
 			; execute as expected, and we use A so we should push that too
+	;sub	a
+	;ldh	[$40], a	; DMG should have the LCD turned off during vblank
 
 	ld	a, $C0
 	call	$FF80	; perform the DMA transfer of sprite data
 
-;no scrolling for now
-;	; now we simply scroll the screen horizontally	
-;	ldh	a, [$43]	; hardware register $FF43 is the Scroll X value
-;	inc	a
-;	ldh	[$43], a
-;
-;	; and vertically
-;	ldh	a, [$42]	; $FF42 is the scroll Y
-;	inc 	a
-;	ldh	[$42], a
+	;ld	a, %11110011
+	;ldh	[$40], a	; turn the LCD back on
 
 	pop	af
 	ei	; enable interrupts
@@ -481,6 +488,14 @@ DB 	$00, $3C, $3C, $42, $3C, $66, $3C, $42
 DB 	$00, $3C, $00, $3C, $00, $3C, $00, $3C
 DB 	$3C, $00, $60, $1E, $5A, $26, $5A, $2E
 DB	$5A, $2E, $5A, $2E, $06, $7E, $3C, $3C
+DB	$FF, $00, $FF, $00, $FF, $FF, $FF, $FF
+DB	$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+DB	$FF, $00, $FF, $00, $FF, $3F, $FF, $3F
+DB	$FF, $3F, $FF, $3F, $FF, $3F, $FF, $3F
+
+WindowData::
+DB	$04, $03, $03, $03, $03, $03, $03, $03, $03, $03
+DB	$03, $03, $03, $03, $03, $03, $03, $03, $03, $03
 
 MapData::
 ; 32 x 32 tiles

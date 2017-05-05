@@ -1,124 +1,15 @@
 ;;; Denis Levesque
 ;;; main.asm - simple Gameboy coin collecting game
-		
-;****************************************************************************************************************************************************
-;*	cartridge header
-;****************************************************************************************************************************************************
 
-	SECTION	"Org $00",HOME[$00]
-RST_00:	
-	jp	$100
+VBLANK_FUNCTION EQUS "VBlankFunction"
 
-	SECTION	"Org $08",HOME[$08]
-RST_08:	
-	jp	$100
-
-	SECTION	"Org $10",HOME[$10]
-RST_10:
-	jp	$100
-
-	SECTION	"Org $18",HOME[$18]
-RST_18:
-	jp	$100
-
-	SECTION	"Org $20",HOME[$20]
-RST_20:
-	jp	$100
-
-	SECTION	"Org $28",HOME[$28]
-RST_28:
-	jp	$100
-
-	SECTION	"Org $30",HOME[$30]
-RST_30:
-	jp	$100
-
-	SECTION	"Org $38",HOME[$38]
-RST_38:
-	jp	$100
-
-	SECTION	"V-Blank IRQ Vector",HOME[$40]
-VBL_VECT:
-	jp VBlankFunction
-	
-	SECTION	"LCD IRQ Vector",HOME[$48]
-LCD_VECT:
-	reti
-
-	SECTION	"Timer IRQ Vector",HOME[$50]
-TIMER_VECT:
-	reti
-
-	SECTION	"Serial IRQ Vector",HOME[$58]
-SERIAL_VECT:
-	reti
-
-	SECTION	"Joypad IRQ Vector",HOME[$60]
-JOYPAD_VECT:
-	reti
-	
-	SECTION	"Start",HOME[$100]
-	nop
-	jp	Start
-
-	; $0104-$0133 (Nintendo logo - do _not_ modify the logo data here or the GB will not run the program)
-	DB	$CE,$ED,$66,$66,$CC,$0D,$00,$0B,$03,$73,$00,$83,$00,$0C,$00,$0D
-	DB	$00,$08,$11,$1F,$88,$89,$00,$0E,$DC,$CC,$6E,$E6,$DD,$DD,$D9,$99
-	DB	$BB,$BB,$67,$63,$6E,$0E,$EC,$CC,$DD,$DC,$99,$9F,$BB,$B9,$33,$3E
-
-	; $0134-$013E (Game title - up to 11 upper case ASCII characters; pad with $00)
-	DB	"TEST GAME", 0, 0
-		;0123456789A
-
-	; $013F-$0142 (Product code - 4 ASCII characters, assigned by Nintendo, just leave blank)
-	DB	"    "
-		;0123
-
-	; $0143 (Color GameBoy compatibility code)
-	DB	$00	; $00 - DMG 
-			; $80 - DMG/GBC
-			; $C0 - GBC Only cartridge
-
-	; $0144 (High-nibble of license code - normally $00 if $014B != $33)
-	DB	$00
-
-	; $0145 (Low-nibble of license code - normally $00 if $014B != $33)
-	DB	$00
-
-	; $0146 (GameBoy/Super GameBoy indicator)
-	DB	$00	; $00 - GameBoy
-
-	; $0147 (Cartridge type - all Color GameBoy cartridges are at least $19)
-	DB	$00	; $19 - ROM + MBC5
-
-	; $0148 (ROM size)
-	DB	$00	; $00 - 256Kbit = 32Kbyte = 2 banks
-	
-	; $0149 (RAM size)
-	DB	$00	; $00 - None
-
-	; $014A (Destination code)
-	DB	$00	; $01 - All others
-			; $00 - Japan
-	
-	; $014B (Licensee code - this _must_ be $33)
-	DB	$33	; $33 - Check $0144/$0145 for Licensee code.
-
-	; $014C (Mask ROM version - handled by RGBFIX)
-	DB	$00
-
-	; $014D (Complement check - handled by RGBFIX)
-	DB	$00
-
-	; $014E-$014F (Cartridge checksum - handled by RGBFIX)
-	DW	$00
-
+INCLUDE "../../gameboy_header.inc"
 
 ;****************************************************************************************************************************************************
 ;*	Program Start
 ;****************************************************************************************************************************************************
 
-	SECTION "Program Start",HOME[$0150]
+	SECTION "Program Start",ROM0[$0150]
 Start::
 
 	;; some notes, the stack pointer defaults to $FFFE and the stack grows up
@@ -150,8 +41,8 @@ wait_vblank::
 	;; we will load our tiles into the Tile Pattern Table at $8000-$8FFF
 	ld	hl, $8000	; the location to write tile data to
 	ld	bc, TileData	; the data to write
-	ld	d, $50		; the number of bytes we will write
-	ld	e, $0
+	ld	e, $30		; the number of bytes we will write
+	ld	d, $0
 	call	MemCopy
 
 	;; now we load the tile map into vram
@@ -170,8 +61,8 @@ wait_vblank::
 	; loading the sprite attribute data to RAM
 	ld	bc, SpriteData
 	ld	hl, $C000
-	ld	d, $8
-	ld	e, $0
+	ld	d, $0
+	ld	e, $8
 	call	MemCopy
 
 	; now we are initializing the rest of the unused sprite data
@@ -186,21 +77,9 @@ load_sprite_loop::
 
 	; now we want to load our DMA waiting function into HRAM ($FF80)
 	ld	bc, DMA_Function
-	ld	d, $8		;8 bytes of data
-	ld	e, $0
+	ld	e, $8		;8 bytes of data
+	ld	d, $0
 	ld	hl, $FF80
-	call	MemCopy
-
-	; initialize the window
-	sub	a
-	ldh	[$4A], a
-	ld	a, $7
-	ldh	[$4B], a	; WX should not be set as a value from 0-6
-	
-	ld	e, $0
-	ld	d, $14		;20 bytes
-	ld	hl, $9C00
-	ld	bc, WindowData
 	call	MemCopy
 
 	; initialize the flag that changes player movement
@@ -219,7 +98,7 @@ load_sprite_loop::
 	ld	[$FF07], a
 
 	; reenable lcd
-	ld	a, %11110011		; window display data is at $9C00, background display data is at $9800
+	ld	a, %11010011		; window display data is at $9C00, background display data is at $9800
 	ldh	[$40], a
 
 	;; interrupts can now start happening
@@ -435,39 +314,33 @@ noCollision::
 ; HL should hold the location to write to
 ; BC should hold the location to write from
 ; DE should hold the number of bytes to write
-MemCopy::
+MemCopy:
 	push	af
 	
 .copyLoop
-	ld	a, [bc]
-	ldi	[hl], a
-	inc	bc
+	ld		a, [bc]
+	ldi		[hl], a
+	inc		bc
 
-	ld	a, e
-	or	e
-	jp	z, .skipE
-	dec	e
-	jp	nz, .copyLoop
-
-.skipE
-	dec	d
-	jp	nz, .copyLoop
+	dec		de
 	
-	pop	af
+	ld		a, e
+	or		a
+	jp		nz, .copyLoop
+	ld		a, d
+	or		a
+	jp		nz, .copyLoop
+
+	pop		af
 	ret
 
 VBlankFunction::
 	di		; disable interrupts (don't think this is necessary?)
 	push	af	; we push the flag register so that the interrupted code will still
 			; execute as expected, and we use A so we should push that too
-	;sub	a
-	;ldh	[$40], a	; DMG should have the LCD turned off during vblank
 
 	ld	a, $C0
 	call	$FF80	; perform the DMA transfer of sprite data
-
-	;ld	a, %11110011
-	;ldh	[$40], a	; turn the LCD back on
 
 	pop	af
 	ei	; enable interrupts
@@ -488,14 +361,6 @@ DB 	$00, $3C, $3C, $42, $3C, $66, $3C, $42
 DB 	$00, $3C, $00, $3C, $00, $3C, $00, $3C
 DB 	$3C, $00, $60, $1E, $5A, $26, $5A, $2E
 DB	$5A, $2E, $5A, $2E, $06, $7E, $3C, $3C
-DB	$FF, $00, $FF, $00, $FF, $FF, $FF, $FF
-DB	$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-DB	$FF, $00, $FF, $00, $FF, $3F, $FF, $3F
-DB	$FF, $3F, $FF, $3F, $FF, $3F, $FF, $3F
-
-WindowData::
-DB	$04, $03, $03, $03, $03, $03, $03, $03, $03, $03
-DB	$03, $03, $03, $03, $03, $03, $03, $03, $03, $03
 
 MapData::
 ; 32 x 32 tiles
